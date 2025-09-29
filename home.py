@@ -3,8 +3,9 @@ import pandas as pd
 import numpy as np
 import chromadb
 import chromadb.utils.embedding_functions as embedding_functions
-from helpers import format_number, format_impact, get_from_chroma_with_ids
+from helpers import *
 
+DF_PATH = "files/videos.csv"
 CHROMA_API_KEY = 'ck-CL2eRYFeJAN8mTfL1Xup2Bun4nrKgDht4RAzDqia7uT'
 CHROMA_TENANT = '0b1b6a8d-f2d5-4dd8-b9ce-5aae12272521'
 VIDEO_EMB_COLLECTION = "videos-0926-large-512"
@@ -13,8 +14,13 @@ OPENAI_API_KEY = "sk-proj-QpCTwRTDenhAB5gUD4DlS0swXoL-uMZNJPA7s17lYk9RqHvmtv_JFc
 N_TERMS = 3
 
 # Set up to df / youtube
-if "video_df" not in st.session_state:
-    st.session_state.df = pd.read_csv("videos.csv")
+if "df" not in st.session_state:
+    st.session_state.df = pd.read_csv(DF_PATH)
+    # Sort by publication
+    st.session_state.df['published_at_datetime'] = pd.to_datetime(st.session_state.df['published_at'], utc=True)
+    st.session_state.df = st.session_state.df.sort_values(by='published_at_datetime', ascending=False)
+    # add a channel_title: title column for selectbox
+    st.session_state.df['channel_title_with_title'] = st.session_state.df['channel_title'].str.cat(st.session_state.df['title'], sep=': ')
 
     st.session_state.client = chromadb.CloudClient(
       api_key=CHROMA_API_KEY,
@@ -37,7 +43,6 @@ if "video_df" not in st.session_state:
         embedding_function=st.session_state.openai_ef, 
         get_or_create=True  
     )
-    
 
 
 
@@ -45,36 +50,40 @@ st.markdown(
     """
     <style>
     h6 {
-        padding-bottom: 8 !important;
+        padding-bottom: 8px !important;
     }
     </style>
     """,
     unsafe_allow_html=True
 )
 
-# st.markdown(
-#     """
-#     <style>
-#     .st-key-title  {
-#         margin-top: 15px !important;
-#         margin-left: 15px !important;
-#     }
-#     </style>
-#     """,
-#     unsafe_allow_html=True
-# )
+st.markdown(
+    """
+    <style>
+    p {
+        margin-bottom: 8px !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+st.markdown(
+    """
+    <style>
+    [data-testid="stCaptionContainer"] {
+        margin-bottom: -12px !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
 
-
-# Title search
-# title = st.text_input("Search YouTube Video Title")
-# filtered_df = st.session_state.df
-# if title:
-#   filtered_df = filtered_df.loc[filtered_df["title"].str.contains(title, case=False, na=False)]
 
 title = st.selectbox(
     "Search YouTube Video Title",
-    st.session_state.df['title'].to_list(),
+    st.session_state.df['channel_title_with_title'].to_list(),
     index=0,
     placeholder="Video title",
     accept_new_options=False,
@@ -83,7 +92,7 @@ title = st.selectbox(
 
 filtered_df = st.session_state.df
 if title:
-  filtered_df = filtered_df.loc[filtered_df["title"] == title]
+  filtered_df = filtered_df.loc[filtered_df['channel_title_with_title'] == title]
   print(len(filtered_df), filtered_df.iloc[:5]['title'])
 
 video = None
@@ -105,7 +114,7 @@ if video is not None:
 
     channel_df = st.session_state.df[st.session_state.df['channel_id'] == video['channel_id']]
     channel_views = channel_df['views'].sum()
-    channel_mean_views = channel_df['views'].mean()
+    channel_median_views = channel_df['views'].median()
     channel_vids_count = channel_df['id'].count()
 
     vid_data = [
@@ -116,7 +125,7 @@ if video is not None:
       ],
       [
         ('Channel views', format_number(channel_views)), 
-        ('Avg channel views', format_number(channel_mean_views)), 
+        ('Avg channel views', format_number(channel_median_views)), 
         # ('Channel Videos', format_number(channel_vids_count)), 
         ('Subscribers', format_number(video.loc['subscriber_count']))
       ]
@@ -133,6 +142,24 @@ for r, row_data in enumerate(vid_data):
         tile.markdown(f"###### {data[1]} {data[0]}")
       # else:
       #   tile.markdown(f"###### --")
+
+
+# Top/bottom n prediction
+if video is not None:
+  top_n = predict_top_n_percent(
+    st.session_state.df, 
+    video, 
+    st.session_state.video_collection, 
+    st.session_state.openai_ef
+  )
+  if top_n is not None:
+    tile = st.container(border=True)
+    top_bottom = "Bottom" if top_n <= 0.5 else "Top"
+    # Want >= 50%/25% not <=
+    if top_n > 0.5:
+      top_n = (1-top_n)+0.25
+    tile.markdown(f"{top_bottom} {int(top_n*100)}% in channel views")
+    tile.caption(f"Video Prediction")
 
 
 # Features
@@ -194,26 +221,27 @@ if video is not None:
       print(term_dist)
 
       if term_dist:
-        row3, _ = st.columns([1,1])
-        with row3:
-          tile = st.container(border=True)
-          tile.markdown(f"###### {new_feature}")
-          tile.caption(f"Impact: {format_impact(term_dist)}")
+        # row3 = st.columns(1)
+        # with row3:
+        tile = st.container(border=True)
+        tile.markdown(f"###### {new_feature}")
+        tile.caption(f"Impact: {format_impact(term_dist)}")
 
 
     except Exception as e:
       st.error(f"Error generating embedding: {e}")
 
 
-  
-
-  
-  row4 = st.columns(4)
-
+if video is not None:
+  space = st.container(border=False, height=12)
+  container = st.container()
+  plot_channel_over_time(
+    container, st.session_state.df, video['channel_id'], video['id']
+  )
 
 # Description
 if video is not None:
-  space = st.container(border=False, height=12)
+  space = st.container(border=False, height=4)
 
   title_tile = st.container(border=True)  
   title_tile.markdown(f"##### Description \n{video.loc['description']}")
