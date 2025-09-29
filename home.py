@@ -1,16 +1,16 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import chromadb
+import chromadb, os
 import chromadb.utils.embedding_functions as embedding_functions
 from helpers import *
 
 DF_PATH = "files/videos.csv"
-CHROMA_API_KEY = 'ck-CL2eRYFeJAN8mTfL1Xup2Bun4nrKgDht4RAzDqia7uT'
-CHROMA_TENANT = '0b1b6a8d-f2d5-4dd8-b9ce-5aae12272521'
 VIDEO_EMB_COLLECTION = "videos-0926-large-512"
 TERMS_EMB_COLLECTION = "terms-large-512"
-OPENAI_API_KEY = "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"
+CHROMA_API_KEY = os.environ['CHROMA_API_KEY']
+CHROMA_TENANT = os.environ['CHROMA_TENANT']
+OPENAI_API_KEY = os.environ['OPENAI_API_KEY']
 N_TERMS = 3
 
 # Set up to df / youtube
