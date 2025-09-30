@@ -125,7 +125,7 @@ if video is not None:
       ],
       [
         ('Channel views', format_number(channel_views)), 
-        ('Avg channel views', format_number(channel_median_views)), 
+        ('Med channel views', format_number(channel_median_views)), 
         # ('Channel Videos', format_number(channel_vids_count)), 
         ('Subscribers', format_number(video.loc['subscriber_count']))
       ]
@@ -233,10 +233,16 @@ if video is not None:
 
 
 if video is not None:
-  space = st.container(border=False, height=12)
+  space = st.container(border=False, height=20)
   container = st.container()
   plot_channel_over_time(
     container, st.session_state.df, video['channel_id'], video['id']
+  )
+  plot_channel_duration_over_time(
+    container, st.session_state.df, video['channel_id']
+  )
+  plot_work_per_video_type(
+    container, st.session_state.df, video['channel_id']
   )
 
 # Description

@@ -75,7 +75,7 @@ def predict_top_n_percent(df_videos, video, video_collection, embedder, n_days_a
   if type(pred) in [np.ndarray, list] and len(pred):
     pred = pred[0]
 
-  print(f"Predicted uplift: {np.expm1(pred)}")
+  print(f"Predicted uplift: {np.exp(pred)}")
   # Denormalize into view space
   if pred == 0:
     pred += 0.00001
@@ -122,11 +122,12 @@ def plot_channel_over_time(container, df_videos, channel_id, video_id):
     # convert to a DataFrame
     df = pd.DataFrame({
         'Month': channel_videos.index, 
-        'Views': channel_videos.values
+        'Views': channel_videos.values,
+        "Cumulative Views": channel_videos.cumsum()
     })
 
     # Plot
-    chart = alt.Chart(df).mark_line(point=True).encode(
+    pdf = alt.Chart(df).mark_area(opacity=0.5).encode(
         x=alt.X(
             'Month:T', 
             axis=alt.Axis(format='%b %Y', tickCount=6, title="Publication Date")
@@ -134,9 +135,212 @@ def plot_channel_over_time(container, df_videos, channel_id, video_id):
         y=alt.Y(
             'Views:Q',
             axis=alt.Axis(tickCount=6, title="Channel Views")
-        )
-    ).interactive()
+        ),
+        tooltip=[
+            alt.Tooltip('Month:T', title='Month', format='%b %Y'),
+            alt.Tooltip('Views', title='Views', format=',.0f'),
+        ]
+    )
 
-    container.altair_chart(chart, use_container_width=True)
+    # line at top of area
+    pdf_line = alt.Chart(df).mark_line(
+        opacity=0.8,
+        strokeWidth=2
+    ).encode(
+        x='Month:T',
+        y=alt.Y(
+            'Views:Q',
+            axis=alt.Axis(tickCount=6, title="Channel Views")
+        )
+    )
+
+    cdf_time = (
+        alt.Chart(df)
+        .mark_area(color="steelblue", opacity=0.3)
+        .encode(
+            x="Month:T",
+            y=alt.Y('Cumulative Views:Q',
+                axis=alt.Axis(tickCount=6, title="Channel Cumulative Views")
+            ),
+        )
+    )
+    cdf_time_line = (
+        alt.Chart(df)
+        .mark_line(color="steelblue", opacity=0.8)
+        .encode(
+            x="Month:T",
+            y=alt.Y('Cumulative Views:Q',
+                axis=alt.Axis(tickCount=6, title="Channel Cumulative Views")
+            ),
+        )
+    )
+
+    chart = alt.layer(pdf + pdf_line, cdf_time + cdf_time_line
+    ).resolve_scale(
+      y='independent'
+    ).properties(
+        title="Monthly Channel Views By Publication"
+    ).configure_title(
+        fontSize=16,
+        anchor='middle',
+    )
+    container.altair_chart(chart.interactive(bind_y=False), use_container_width=True)
     # _, col, _ = container.columns(3)
     # col.caption("Channel Views By Publication")
+
+
+def plot_channel_duration_over_time(container, df_videos, channel_id):
+    ''' Plot the duration of videos over time for a channel '''
+
+    channel_videos = df_videos[df_videos['channel_id'] == channel_id]
+    n_videos_lt_5 = len(channel_videos[channel_videos['duration'] < 5*60])
+    n_videos_gt_5_lt_20 = len(channel_videos[(channel_videos['duration'] >= 5*60) & (channel_videos['duration'] < 20*60)])
+    n_videos_gt_20 = len(channel_videos[channel_videos['duration'] >= 20*60])
+    print(f"Total videos: {len(channel_videos)}")
+    print(f"Short form - Number of videos < 5 minutes {n_videos_lt_5}")
+    print(f"Medium - Number of videos 5 < x <= 20 minutes {n_videos_gt_5_lt_20}")
+    print(f"Long form - Number of videos >= 20 minutes {n_videos_gt_20}")
+
+    channel_videos = channel_videos.sort_values(by='duration').reset_index()
+
+    # convert to a DataFrame
+    df = pd.DataFrame({
+        'Video': channel_videos['title'], 
+        'Views': channel_videos['views'],
+        "Duration": channel_videos['duration'] / 60,
+        "Order": range(len(channel_videos)),
+    })
+
+    # Plot
+    video_views_area_chart = alt.Chart(df).mark_area(opacity=0.5).encode(
+        x=alt.X('Order:Q', sort=None, title="Videos (sorted by duration)", axis=alt.Axis(labels=False, ticks=False)),
+        y=alt.Y(
+            'Views:Q',
+            axis=alt.Axis(tickCount=6, title="Video Views")
+        ),
+        tooltip=[
+            alt.Tooltip('Video', title='Video'),
+            alt.Tooltip('Views', title='Views', format=',.0f'),
+            alt.Tooltip('Duration', title='Duration (min)', format=',.0f')
+        ]
+    )
+
+    # line at top of area
+    video_views_line_chart = alt.Chart(df).mark_line(
+        opacity=0.8,
+        strokeWidth=2
+    ).encode(
+        x=alt.X('Order:Q', sort=None, title="Videos (sorted by duration)", axis=alt.Axis(labels=False, ticks=False)),
+        y=alt.Y(
+            'Views:Q',
+            axis=alt.Axis(tickCount=6, title="Video Views")
+        )
+    )
+
+    video_duration_area_chart = alt.Chart(df).mark_area(
+        color="steelblue", 
+        opacity=0.3
+    ).encode(
+        x=alt.X('Order:Q', sort=None, title="Videos (sorted by duration)", axis=alt.Axis(labels=False, ticks=False)),
+        y=alt.Y(
+            'Duration:Q',
+            axis=alt.Axis(tickCount=6, title="Duration (minutes)")
+        )
+    )
+    video_duration_line_chart = alt.Chart(df).mark_line(
+        color="steelblue", 
+        opacity=0.8
+    ).encode(
+        x=alt.X('Order:Q', sort=None, title="Videos (sorted by duration)", axis=alt.Axis(labels=False, ticks=False)),
+        y=alt.Y(
+            'Duration:Q',
+            axis=alt.Axis(tickCount=6, title="Duration (minutes)")
+        ),
+    )
+    
+    # display
+    chart = alt.layer(
+        video_views_area_chart + video_views_line_chart,
+        video_duration_area_chart + video_duration_line_chart,
+        data=df
+    ).resolve_scale(
+        y='independent'
+    ).interactive(
+      bind_y=False
+    ).properties(
+        title="Channel Video Views By Duration"
+    ).configure_title(
+        fontSize=16,
+        anchor='middle',
+    )
+    container.altair_chart(chart, use_container_width=True)
+
+
+def plot_work_per_video_type(container, df_videos, channel_id):
+    
+    channel_videos = df_videos[df_videos['channel_id'] == channel_id]
+    channel_videos['video_type'] = channel_videos['duration'].apply(
+        lambda x: 'Short (<5M)' if x < 5*60 else 'Clip (<20M)' if x < 20*60 else 'Long Form (≥20M)'
+    )
+    video_type_groups = channel_videos.groupby('video_type')
+    # Get per-group median
+    video_type_views = video_type_groups['views'].median()
+    work_per_video = video_type_groups['duration'].median() / 60 * 5
+
+    df = pd.DataFrame({
+        'Video Type': video_type_views.index, 
+        'Views': video_type_views.values,
+        'Work': work_per_video.values,
+    })
+    # Define the desired order for video types
+    video_type_order = ['Short (<5M)', 'Clip (<20M)', 'Long Form (≥20M)']
+    # Altair chart that shows a scatter plot where each column is a video_type_view, size is a the total duration * 5, and height is video_type_view
+    scatter = alt.Chart(df).mark_circle().encode(
+        x=alt.X('Video Type:N', sort=video_type_order,
+                axis=alt.Axis(labels=True, ticks=False, labelAngle=0)
+        ),
+        y=alt.Y(
+            'Work:Q',
+            scale=alt.Scale(domain=[-100, df['Work'].max() + 200]),
+            axis=alt.Axis(tickCount=6, title="Production Work (5 Min/Median Duration Min)")
+        ),
+        size=alt.Size(
+            'Views:Q',
+            scale=alt.Scale(range=[1000, 10000]),
+            # legend=alt.Legend(title="Production work (minutes*5)")
+            legend=None
+        ),
+        color=alt.Color(
+            'Video Type:N',
+            # scale=alt.Scale(domain=work_per_video.values),  # only these three show in the legend
+            legend=None
+        ),
+        tooltip=[
+            alt.Tooltip('Views:Q', title='Total Views', format=',.0f'),
+            alt.Tooltip('Work:Q', title='Estimated Work (min)', format=',.0f')
+        ]
+    )
+
+    labels = alt.Chart(df).mark_text(
+        align='center', 
+        baseline='middle',  
+        color='white'
+    ).encode(
+        x=alt.X('Video Type:N', sort=video_type_order),
+        y='Work:Q',
+        text=alt.Text('Views:Q', format=',.0f') 
+    )
+
+    # Combine scatter and labels
+    chart = alt.layer(
+      scatter + labels, 
+      data=df
+    ).properties(
+        title="Is it worth it? (Views Per Production Cost)",
+        height=400
+    ).configure_title(
+        fontSize=16,
+        anchor='middle',
+    )
+
+    container.altair_chart(chart, use_container_width=True)
