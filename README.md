@@ -1,4 +1,4 @@
-# Youtube Engagement
+# YouTube Engagement
 
 <p align="center">
   <img width="128" height="128" alt="Untitled Project Illustration (1)" src="https://github.com/user-attachments/assets/2b00534b-0b30-41ad-9e19-d14709aa774b" />
