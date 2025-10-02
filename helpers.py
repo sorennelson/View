@@ -201,11 +201,7 @@ def plot_channel_over_time(container, df_videos, channel_id, video_id):
         y=alt.Y(
             'Views:Q',
             axis=alt.Axis(tickCount=6, title="Channel Views")
-        ),
-        tooltip=[
-            alt.Tooltip('Month:T', title='Month', format='%b %Y'),
-            alt.Tooltip('Views', title='Views', format=',.0f'),
-        ]
+        )
     )
 
     # line at top of area
@@ -218,10 +214,6 @@ def plot_channel_over_time(container, df_videos, channel_id, video_id):
             'Views:Q',
             axis=alt.Axis(tickCount=6, title="Channel Views")
         ),
-        tooltip=[
-            alt.Tooltip('Month:T', title='Month', format='%b %Y'),
-            alt.Tooltip('Views', title='Views', format=',.0f'),
-        ]
     )
 
     points = pdf_line.mark_point().encode(
@@ -249,7 +241,8 @@ def plot_channel_over_time(container, df_videos, channel_id, video_id):
         )
     )
 
-    chart = alt.layer(pdf + pdf_line + selectors + points, cdf_time + cdf_time_line
+    chart = alt.layer(selectors + points, pdf + pdf_line)
+    chart = alt.layer(chart, cdf_time + cdf_time_line
     ).resolve_scale(
       y='independent'
     ).properties(
@@ -312,12 +305,7 @@ def plot_channel_duration_over_time(container, df_videos, channel_id):
         y=alt.Y(
             'Views:Q',
             axis=alt.Axis(tickCount=6, title="Video Views")
-        ),
-        tooltip=[
-            alt.Tooltip('Video', title='Video'),
-            alt.Tooltip('Views', title='Views', format=',.0f'),
-            alt.Tooltip('Duration', title='Duration (min)', format=',.0f')
-        ]
+        )
     )
 
     # line at top of area
@@ -329,15 +317,14 @@ def plot_channel_duration_over_time(container, df_videos, channel_id):
         y=alt.Y(
             'Views:Q',
             axis=alt.Axis(tickCount=6, title="Video Views")
-        ),
-        tooltip=[
-            alt.Tooltip('Video', title='Video'),
-            alt.Tooltip('Views', title='Views', format=',.0f'),
-            alt.Tooltip('Duration', title='Duration (min)', format=',.0f')
-        ]
+        )
     )
 
     points = video_views_line_chart.mark_point().encode(
+        y=alt.Y(
+            'Views:Q',
+            axis=alt.Axis(tickCount=6, title="Video Views")
+        ),
         opacity=alt.condition(nearest, alt.value(1), alt.value(0))
     )
 
@@ -361,12 +348,16 @@ def plot_channel_duration_over_time(container, df_videos, channel_id):
             axis=alt.Axis(tickCount=6, title="Duration (minutes)")
         ),
     )
+
+    chart = alt.layer(
+      selectors + points,
+      video_views_area_chart + video_views_line_chart,
+    )
     
     # display
     chart = alt.layer(
-        video_views_area_chart + video_views_line_chart + selectors + points,
+        chart,
         video_duration_area_chart + video_duration_line_chart,
-        # selectors,
         data=df
     ).resolve_scale(
         y='independent'
