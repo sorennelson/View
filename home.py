@@ -7,6 +7,8 @@ from threading import Thread
 from helpers import *
 from youtube import get_youtube_video_df
 
+import time
+
 DF_PATH = "files/videos.csv"
 VIDEO_EMB_COLLECTION = "videos-0926-large-512"
 TERMS_EMB_COLLECTION = "terms-large-512"
@@ -54,6 +56,40 @@ if "df" not in st.session_state:
 
 
 # CSS design tweaks
+
+st.markdown(
+    """
+    <style>
+    [data-testid="stMainBlockContainer"] {
+        padding-top: 10px !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+# Center Logo
+st.markdown(
+    """
+    <style>
+    [data-testid="stToolbar"] div div div div img {
+        height: 40px !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+# Toolbar color
+st.markdown(
+    """
+    <style>
+    [data-testid="stToolbar"] {
+        border-bottom: 0.5px solid rgba(60,64,68,.5);
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
 st.markdown(
     """
     <style>
@@ -64,6 +100,7 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+
 st.markdown(
     """
     <style>
@@ -94,12 +131,29 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+# Center Streamlit spinners
+st.markdown(
+    """
+    <style>
+    .stSpinner div {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        margin-top: 16px !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
 
+
+# Logo
+st.logo("files/Logo.png", size="large", icon_image="files/Logo.png")
 
 # Select video
 title = st.selectbox(
-    "Search YouTube Video",
+    "Search YouTube Videos",
     st.session_state.df['channel_title_with_title'].to_list(),
     index=0,
     placeholder="Video title",
@@ -185,9 +239,12 @@ if video is not None:
   new_title = None
   if st.session_state.get('Rewrite'):
     col, = st.columns(1)
-    new_title = rewrite_title(video, OPENAI_API_KEY)
+    # Display loader
+    with col:
+      with st.spinner("", width="stretch"):
+        new_title = rewrite_title(video, OPENAI_API_KEY)
 
-  title_rewrite = st.button("AI Title Rewrite", width='stretch', key='Rewrite')
+  title_rewrite = st.button("Title Rewrite With AI", width='stretch', key='Rewrite')
   if title_rewrite:
     if new_title:
       tile = col.container(border=True)

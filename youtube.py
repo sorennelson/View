@@ -36,7 +36,7 @@ class Video(BaseModel):
 
 def get_youtube_video_df(session_state, path):
     if os.path.exists(path):
-        # check if modified in 3 days
+        # check if modified in past 3 days
         modified_ts = os.path.getmtime(path)
         modified_time = datetime.datetime.fromtimestamp(modified_ts)
         print("Last modified:", modified_time)

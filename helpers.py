@@ -167,6 +167,31 @@ def plot_channel_over_time(container, df_videos, channel_id, video_id):
         "Cumulative Views": channel_videos.cumsum()
     })
 
+    # Nearest point selector
+    nearest = alt.selection_point(
+        nearest=True,  # snap to nearest x-value
+        on='mouseover',
+        fields=['Month',],
+        empty=False
+    )
+
+    # Transparent points to enable nearest hover
+    selectors = alt.Chart(df).mark_point(size=1,).encode(
+        x=alt.X(
+            'Month:T', 
+            axis=alt.Axis(format='%b %Y', tickCount=6, title="Publication Date")
+        ),
+        y=alt.Y(
+            'Views:Q',
+            axis=alt.Axis(tickCount=6, title="Channel Views")
+        ),
+        opacity=alt.value(0),
+        tooltip=[
+            alt.Tooltip('Month:T', title='Month', format='%b %Y'),
+            alt.Tooltip('Views', title='Views', format=',.0f'),
+        ]
+    ).add_params(nearest)
+
     # Plot
     pdf = alt.Chart(df).mark_area(opacity=0.5).encode(
         x=alt.X(
@@ -192,7 +217,15 @@ def plot_channel_over_time(container, df_videos, channel_id, video_id):
         y=alt.Y(
             'Views:Q',
             axis=alt.Axis(tickCount=6, title="Channel Views")
-        )
+        ),
+        tooltip=[
+            alt.Tooltip('Month:T', title='Month', format='%b %Y'),
+            alt.Tooltip('Views', title='Views', format=',.0f'),
+        ]
+    )
+
+    points = pdf_line.mark_point().encode(
+        opacity=alt.condition(nearest, alt.value(1), alt.value(0))
     )
 
     cdf_time = (
@@ -216,7 +249,7 @@ def plot_channel_over_time(container, df_videos, channel_id, video_id):
         )
     )
 
-    chart = alt.layer(pdf + pdf_line, cdf_time + cdf_time_line
+    chart = alt.layer(pdf + pdf_line + selectors + points, cdf_time + cdf_time_line
     ).resolve_scale(
       y='independent'
     ).properties(
@@ -226,8 +259,6 @@ def plot_channel_over_time(container, df_videos, channel_id, video_id):
         anchor='middle',
     )
     container.altair_chart(chart.interactive(bind_y=False), use_container_width=True)
-    # _, col, _ = container.columns(3)
-    # col.caption("Channel Views By Publication")
 
 
 def plot_channel_duration_over_time(container, df_videos, channel_id):
@@ -252,6 +283,29 @@ def plot_channel_duration_over_time(container, df_videos, channel_id):
         "Order": range(len(channel_videos)),
     })
 
+    # Nearest point selector
+    nearest = alt.selection_point(
+        nearest=True,  # snap to nearest x-value
+        on='mouseover',
+        fields=['Order',],
+        empty=False
+    )
+
+    # Transparent points to enable nearest hover
+    selectors = alt.Chart(df).mark_point(size=1,).encode(
+        x='Order:Q',
+        y=alt.Y(
+            'Views:Q',
+            axis=alt.Axis(tickCount=6, title="Video Views")
+        ),
+        opacity=alt.value(0),
+        tooltip=[
+            alt.Tooltip('Video', title='Video'),
+            alt.Tooltip('Views', title='Views', format=',.0f'),
+            alt.Tooltip('Duration', title='Duration (min)', format=',.0f')
+        ]
+    ).add_params(nearest)
+
     # Plot
     video_views_area_chart = alt.Chart(df).mark_area(opacity=0.5).encode(
         x=alt.X('Order:Q', sort=None, title="Videos (sorted by duration)", axis=alt.Axis(labels=False, ticks=False)),
@@ -275,7 +329,16 @@ def plot_channel_duration_over_time(container, df_videos, channel_id):
         y=alt.Y(
             'Views:Q',
             axis=alt.Axis(tickCount=6, title="Video Views")
-        )
+        ),
+        tooltip=[
+            alt.Tooltip('Video', title='Video'),
+            alt.Tooltip('Views', title='Views', format=',.0f'),
+            alt.Tooltip('Duration', title='Duration (min)', format=',.0f')
+        ]
+    )
+
+    points = video_views_line_chart.mark_point().encode(
+        opacity=alt.condition(nearest, alt.value(1), alt.value(0))
     )
 
     video_duration_area_chart = alt.Chart(df).mark_area(
@@ -301,8 +364,9 @@ def plot_channel_duration_over_time(container, df_videos, channel_id):
     
     # display
     chart = alt.layer(
-        video_views_area_chart + video_views_line_chart,
+        video_views_area_chart + video_views_line_chart + selectors + points,
         video_duration_area_chart + video_duration_line_chart,
+        # selectors,
         data=df
     ).resolve_scale(
         y='independent'
