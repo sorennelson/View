@@ -1,10 +1,11 @@
 import pandas as pd
 import altair as alt
-import pickle, sklearn
 import numpy as np
+import pickle, sklearn, openai, tiktoken
 
 MAX_TOKENS = 8000  # safe under the 8191 limit
 MODEL_PATH = "files/model-uplift-0927.pkl"
+EMB_MODEL_NAME = "text-embedding-3-large"
 
 
 def format_number(n):
@@ -18,17 +19,28 @@ def format_number(n):
 def format_impact(distance):
   if distance < 1.2:
     return 'High'
-  elif distance < 1.4:
+  elif distance < 1.3:
     return 'Medium'
-  return 'Low'
+  elif distance < 1.4:
+    return 'Low'
+  else: 
+    return None
 
 def truncate_text(text, max_tokens=MAX_TOKENS):
+    tokenizer = tiktoken.encoding_for_model(EMB_MODEL_NAME)
     tokens = tokenizer.encode(text)
     return tokenizer.decode(tokens[:max_tokens])
 
 def get_from_chroma_with_ids(collection, ids):
     data = collection.get(ids=ids, include=["documents", "embeddings"])
     return data
+
+def add_emb_to_chroma(collection, id, emb, doc):
+    collection.add(
+        documents=[truncate_text(doc)],
+        ids=[id],
+        embeddings=[emb] if emb is not None else None
+    )
 
 def predict_top_n_percent(df_videos, video, video_collection, embedder, n_days_ago=90, regr=None):
   ''' Returns whether the video lies in the top n percent of channel videos. 
@@ -58,7 +70,7 @@ def predict_top_n_percent(df_videos, video, video_collection, embedder, n_days_a
     channel_median_views = channel_videos[channel_videos['split'] == 'train']['views'].median()
   else:
     # Otherwise grab median of views > time_cutoff
-    channel_videos['published_at_datetime'] = pd.to_datetime(video['published_at'], utc=True)
+    channel_videos['published_at_datetime'] = pd.to_datetime(channel_videos['published_at'], utc=True)
     channel_median_views = channel_videos[channel_videos['published_at_datetime'] > time_cutoff]['views'].median()
 
   # Load video embedding from chroma
@@ -67,7 +79,13 @@ def predict_top_n_percent(df_videos, video, video_collection, embedder, n_days_a
   # If video isn't in chroma then create embedding
   if not video_docs.get('documents'):
     emb = embedder(truncate_text(video['embedding_text']))
+    emb = emb[0]
+    # Store in Chroma
+    print("Adding to chroma")
+    add_emb_to_chroma(video_collection, video['id'], emb, video['embedding_text'])
+    
   else:
+    print("Embedding in chroma")
     emb = video_docs['embeddings'][0]
 
   # Predict
@@ -97,6 +115,29 @@ def predict_top_n_percent(df_videos, video, video_collection, embedder, n_days_a
         return 1-n
   
   return None
+
+
+def rewrite_title(video, openai_api_key):
+    client = openai.OpenAI(api_key=openai_api_key)
+
+    prompt = f"Using the following YouTube title and description, rewrite the title to boost views. Keep the title professional as if you were creating this for @{video['channel_title']}. Remember, the goal is to boost views so tailor yourself to the channel's audience. Do not add information you cannot get from the information provided. Respond with only the title and no other dialog. \n\n {video['embedding_text']}"
+
+    response = client.responses.create(
+        model="gpt-5-mini",
+        input=prompt
+    )
+    print(prompt)
+    if type(response) == str:
+        return response
+    if not hasattr(response, "output"):
+        return None
+    output = response.output
+    if not output and len(output) < 2:
+         return None
+    output = output[1].content
+    if not output:
+         return None
+    return output[0].text
 
 
 def plot_channel_over_time(container, df_videos, channel_id, video_id):
@@ -179,7 +220,7 @@ def plot_channel_over_time(container, df_videos, channel_id, video_id):
     ).resolve_scale(
       y='independent'
     ).properties(
-        title="Monthly Channel Views By Publication"
+        title="Is my channel growing? (Monthly channel views by publication)"
     ).configure_title(
         fontSize=16,
         anchor='middle',
@@ -268,7 +309,7 @@ def plot_channel_duration_over_time(container, df_videos, channel_id):
     ).interactive(
       bind_y=False
     ).properties(
-        title="Channel Video Views By Duration"
+        title="How many viewers are watching videos this long? (Video views by duration)"
     ).configure_title(
         fontSize=16,
         anchor='middle',
@@ -280,7 +321,7 @@ def plot_work_per_video_type(container, df_videos, channel_id):
     
     channel_videos = df_videos[df_videos['channel_id'] == channel_id]
     channel_videos['video_type'] = channel_videos['duration'].apply(
-        lambda x: 'Short (<5M)' if x < 5*60 else 'Clip (<20M)' if x < 20*60 else 'Long Form (≥20M)'
+        lambda x: 'Short (<3M)' if x < 3*60 else 'Clip (<20M)' if x < 20*60 else 'Long Form (≥20M)'
     )
     video_type_groups = channel_videos.groupby('video_type')
     # Get per-group median
@@ -293,7 +334,7 @@ def plot_work_per_video_type(container, df_videos, channel_id):
         'Work': work_per_video.values,
     })
     # Define the desired order for video types
-    video_type_order = ['Short (<5M)', 'Clip (<20M)', 'Long Form (≥20M)']
+    video_type_order = ['Short (<3M)', 'Clip (<20M)', 'Long Form (≥20M)']
     # Altair chart that shows a scatter plot where each column is a video_type_view, size is a the total duration * 5, and height is video_type_view
     scatter = alt.Chart(df).mark_circle().encode(
         x=alt.X('Video Type:N', sort=video_type_order,
@@ -316,7 +357,8 @@ def plot_work_per_video_type(container, df_videos, channel_id):
             legend=None
         ),
         tooltip=[
-            alt.Tooltip('Views:Q', title='Total Views', format=',.0f'),
+            alt.Tooltip('Video Type:N', title='Type'),
+            alt.Tooltip('Views:Q', title='Median Views', format=',.0f'),
             alt.Tooltip('Work:Q', title='Estimated Work (min)', format=',.0f')
         ]
     )
@@ -328,7 +370,12 @@ def plot_work_per_video_type(container, df_videos, channel_id):
     ).encode(
         x=alt.X('Video Type:N', sort=video_type_order),
         y='Work:Q',
-        text=alt.Text('Views:Q', format=',.0f') 
+        text=alt.Text('Views:Q', format=',.0f'),
+        tooltip=[
+            alt.Tooltip('Video Type:N', title='Type'),
+            alt.Tooltip('Views:Q', title='Median Views', format=',.0f'),
+            alt.Tooltip('Work:Q', title='Estimated Work (min)', format=',.0f')
+        ]
     )
 
     # Combine scatter and labels
@@ -336,7 +383,7 @@ def plot_work_per_video_type(container, df_videos, channel_id):
       scatter + labels, 
       data=df
     ).properties(
-        title="Is it worth it? (Views Per Production Cost)",
+        title="Is the effort worth the views? (Median views per production cost)",
         height=400
     ).configure_title(
         fontSize=16,

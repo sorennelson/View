@@ -3,11 +3,15 @@ import pandas as pd
 import numpy as np
 import chromadb, os
 import chromadb.utils.embedding_functions as embedding_functions
+from threading import Thread
 from helpers import *
+from youtube import get_youtube_video_df
 
 DF_PATH = "files/videos.csv"
 VIDEO_EMB_COLLECTION = "videos-0926-large-512"
 TERMS_EMB_COLLECTION = "terms-large-512"
+EMB_MODEL_NAME = "text-embedding-3-large"
+EMB_DIMENSIONS = 512
 CHROMA_API_KEY = os.environ['CHROMA_API_KEY']
 CHROMA_TENANT = os.environ['CHROMA_TENANT']
 OPENAI_API_KEY = os.environ['OPENAI_API_KEY']
@@ -16,6 +20,10 @@ N_TERMS = 3
 # Set up to df / youtube
 if "df" not in st.session_state:
     st.session_state.df = pd.read_csv(DF_PATH)
+    
+    # Load the latest videos on background thread
+    Thread(target=get_youtube_video_df, args=(st.session_state, DF_PATH), daemon=True).start()
+
     # Sort by publication
     st.session_state.df['published_at_datetime'] = pd.to_datetime(st.session_state.df['published_at'], utc=True)
     st.session_state.df = st.session_state.df.sort_values(by='published_at_datetime', ascending=False)
@@ -30,8 +38,8 @@ if "df" not in st.session_state:
 
     st.session_state.openai_ef = embedding_functions.OpenAIEmbeddingFunction(
       api_key=OPENAI_API_KEY,
-      model_name="text-embedding-3-large",
-      dimensions=512
+      model_name=EMB_MODEL_NAME,
+      dimensions=EMB_DIMENSIONS
     )
     st.session_state.video_collection = st.session_state.client.create_collection(
       name=VIDEO_EMB_COLLECTION,
@@ -45,11 +53,11 @@ if "df" not in st.session_state:
     )
 
 
-
+# CSS design tweaks
 st.markdown(
     """
     <style>
-    h6 {
+    h6, h5 {
         padding-bottom: 8px !important;
     }
     </style>
@@ -79,6 +87,18 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+st.markdown(
+    """
+    <style>
+    button[kind="secondary"], button[kind="primary"], .stButton > button {
+        padding-top: 12px !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+
 
 
 title = st.selectbox(
@@ -99,49 +119,49 @@ video = None
 if len(filtered_df):
   video = filtered_df.iloc[0]
 
+# Title and Thumbnail
 vid_data = []
-# Title
 if video is not None:
   title_row = st.columns([1,3])
   with title_row[0]:
     st.image(video.loc['thumbnail'] , width='stretch')
   
   with title_row[1]:
-    title_tile = st.container(border=True, key="title")  
+    title_tile = st.container(border=True, key="title", height=126)  
     print(video)
     title_tile.markdown(f"##### {video.loc['title']}")
     title_tile.caption(f"{video.loc['channel_title']}")
 
-    channel_df = st.session_state.df[st.session_state.df['channel_id'] == video['channel_id']]
-    channel_views = channel_df['views'].sum()
-    channel_median_views = channel_df['views'].median()
-    channel_vids_count = channel_df['id'].count()
 
-    vid_data = [
-      [
-        ('Views', format_number(video.loc['views'])), 
-        ('Likes', format_number(video.loc['likes'])), 
-        ('Comments', format_number(video.loc['comments'])), 
-      ],
-      [
-        ('Channel views', format_number(channel_views)), 
-        ('Med channel views', format_number(channel_median_views)), 
-        # ('Channel Videos', format_number(channel_vids_count)), 
-        ('Subscribers', format_number(video.loc['subscriber_count']))
-      ]
+if video is not None:
+  # Capture video info
+  channel_df = st.session_state.df[st.session_state.df['channel_id'] == video['channel_id']]
+  channel_views = channel_df['views'].sum()
+  channel_median_views = channel_df['views'].mean()
+  channel_vids_count = channel_df['id'].count()
+
+  vid_data = [
+    [
+      ('Views', format_number(video.loc['views'])), 
+      ('Likes', format_number(video.loc['likes'])), 
+      ('Comments', format_number(video.loc['comments'])), 
+    ],
+    [
+      ('Channel views', format_number(channel_views)), 
+      ('Avg channel views', format_number(channel_median_views)), 
+      ('Subscribers', format_number(video.loc['subscriber_count']))
     ]
+  ]
 
-# Video info
-for r, row_data in enumerate(vid_data):
-  row1 = st.columns(3)
-  for i, col in enumerate(row1):
-    with col:
-      if len(row_data) > i:
-        tile = st.container(border=True, height=60)
-        data = row_data[i]
-        tile.markdown(f"###### {data[1]} {data[0]}")
-      # else:
-      #   tile.markdown(f"###### --")
+  # Dispaly Video info
+  for r, row_data in enumerate(vid_data):
+    row1 = st.columns(3)
+    for i, col in enumerate(row1):
+      with col:
+        if len(row_data) > i:
+          tile = st.container(border=True, height=60)
+          data = row_data[i]
+          tile.markdown(f"###### {data[1]} {data[0]}")
 
 
 # Top/bottom n prediction
@@ -162,6 +182,22 @@ if video is not None:
     tile.caption(f"Video Prediction")
 
 
+# Title Rewrite
+if video is not None:
+  new_title = None
+  if st.session_state.get('Rewrite'):
+    col, = st.columns(1)
+    new_title = rewrite_title(video, OPENAI_API_KEY)
+
+  title_rewrite = st.button("Rewrite Title", width='stretch', key='Rewrite')
+  if title_rewrite:
+    if new_title:
+      tile = col.container(border=True)
+      tile.markdown(new_title)
+      tile.caption(f"Title Rewrite")
+    
+
+
 # Features
 if video is not None:
   # button = st.button("See Impactful Features", width='stretch')
@@ -169,7 +205,7 @@ if video is not None:
   space = st.container(border=False, height=12)
 
   # New feature
-  new_feature = st.text_input("Feature impact", placeholder='e.g. Viral title')
+  new_feature = st.text_input("Feature impact", placeholder='Test your own feature (e.g. Viral title, Exciting product, Popular guest)')
 
   row2 = st.columns(3)
   # if button:
@@ -179,6 +215,21 @@ if video is not None:
     st.session_state.video_collection, 
     [video['id']]
   )
+
+  # Upload embedding if it doesn't exist
+  if not len(video_emb_docs['embeddings']):
+    print(f"Uploading embedding")
+
+    add_emb_to_chroma(
+      st.session_state.video_collection, 
+      video['id'], 
+      None, 
+      video['embedding_text']
+    )
+    video_emb_docs = get_from_chroma_with_ids(
+      st.session_state.video_collection, 
+      [video['id']]
+    )
 
   # Query with video embedding
   top_term_docs = st.session_state.term_collection.query(
@@ -194,7 +245,7 @@ if video is not None:
 
     for i, col in enumerate(row2):
       with col:
-        if len(top_terms) > i:
+        if len(top_terms) > i and format_impact(dist[i]):
           tile = st.container(border=True)
           term = top_terms[i].replace('episode', '').replace('Episode', '')
           tile.markdown(f"###### {term}")
