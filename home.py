@@ -64,7 +64,6 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
-
 st.markdown(
     """
     <style>
@@ -75,7 +74,6 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
-
 st.markdown(
     """
     <style>
@@ -86,7 +84,6 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
-
 st.markdown(
     """
     <style>
@@ -100,21 +97,22 @@ st.markdown(
 
 
 
-
+# Select video
 title = st.selectbox(
-    "Search YouTube Video Title",
+    "Search YouTube Video",
     st.session_state.df['channel_title_with_title'].to_list(),
     index=0,
     placeholder="Video title",
     accept_new_options=False,
 )
 
-
+# Filter based on selectbox search
 filtered_df = st.session_state.df
 if title:
   filtered_df = filtered_df.loc[filtered_df['channel_title_with_title'] == title]
   print(len(filtered_df), filtered_df.iloc[:5]['title'])
 
+# Update video to the first video in the selectbox
 video = None
 if len(filtered_df):
   video = filtered_df.iloc[0]
@@ -174,11 +172,11 @@ if video is not None:
   )
   if top_n is not None:
     tile = st.container(border=True)
-    top_bottom = "Bottom" if top_n <= 0.5 else "Top"
+    top_bottom = "bottom" if top_n <= 0.5 else "top"
     # Want >= 50%/25% not <=
     if top_n > 0.5:
       top_n = (1-top_n)+0.25
-    tile.markdown(f"{top_bottom} {int(top_n*100)}% in channel views")
+    tile.markdown(f"Expected to be in the {top_bottom} {int(top_n*100)}% in channel views")
     tile.caption(f"Video Prediction")
 
 
@@ -189,7 +187,7 @@ if video is not None:
     col, = st.columns(1)
     new_title = rewrite_title(video, OPENAI_API_KEY)
 
-  title_rewrite = st.button("Rewrite Title", width='stretch', key='Rewrite')
+  title_rewrite = st.button("AI Title Rewrite", width='stretch', key='Rewrite')
   if title_rewrite:
     if new_title:
       tile = col.container(border=True)
@@ -200,15 +198,13 @@ if video is not None:
 
 # Features
 if video is not None:
-  # button = st.button("See Impactful Features", width='stretch')
-
   space = st.container(border=False, height=12)
-
   # New feature
-  new_feature = st.text_input("Feature impact", placeholder='Test your own feature (e.g. Viral title, Exciting product, Popular guest)')
-
+  new_feature = st.text_input(
+    "Feature impact: How much does the model see this feature in a description of the video?", 
+    placeholder='Test your own feature (e.g. Viral title, Exciting product, Popular guest)'
+  )
   row2 = st.columns(3)
-  # if button:
 
   # Get video embedding
   video_emb_docs = get_from_chroma_with_ids(
@@ -238,6 +234,7 @@ if video is not None:
   )
   print(top_term_docs)
 
+  # If we found any relevant terms, display them
   if top_term_docs.get('documents'):
     top_terms = top_term_docs['documents'][0]
     dist = top_term_docs.get('distances')
@@ -249,11 +246,9 @@ if video is not None:
           tile = st.container(border=True)
           term = top_terms[i].replace('episode', '').replace('Episode', '')
           tile.markdown(f"###### {term}")
+          tile.caption(f"Impact: {format_impact(dist[i])}")
 
-          if len(dist) > i:
-            tile.caption(f"Impact: {format_impact(dist[i])}")
-
-  
+  # If searched for a feature, display the impact
   if new_feature:
     try:
 
@@ -272,17 +267,15 @@ if video is not None:
       print(term_dist)
 
       if term_dist:
-        # row3 = st.columns(1)
-        # with row3:
         tile = st.container(border=True)
         tile.markdown(f"###### {new_feature}")
         tile.caption(f"Impact: {format_impact(term_dist)}")
-
 
     except Exception as e:
       st.error(f"Error generating embedding: {e}")
 
 
+# Display plots
 if video is not None:
   space = st.container(border=False, height=20)
   container = st.container()
