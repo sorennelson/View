@@ -40,7 +40,7 @@ def get_youtube_video_df(session_state, path):
         modified_ts = os.path.getmtime(path)
         modified_time = datetime.datetime.fromtimestamp(modified_ts)
         print("Last modified:", modified_time)
-        cutoff = datetime.datetime.now() - datetime.timedelta(minutes=5)
+        cutoff = datetime.datetime.now() - datetime.timedelta(days=1)
         do_get_stats = modified_time <= cutoff
     else:
         do_get_stats = True
