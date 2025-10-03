@@ -18,6 +18,8 @@ CHROMA_API_KEY = os.environ['CHROMA_API_KEY']
 CHROMA_TENANT = os.environ['CHROMA_TENANT']
 OPENAI_API_KEY = os.environ['OPENAI_API_KEY']
 N_TERMS = 3
+FEATURE_SCALE = 0.1
+N_BOOST = 3
 
 # Set up to df / youtube
 if "df" not in st.session_state:
@@ -61,7 +63,8 @@ st.markdown(
     """
     <style>
     [data-testid="stMainBlockContainer"] {
-        padding-top: 10px !important;
+        padding-top: 0 !important;
+        max-width: 900px !important;
     }
     </style>
     """,
@@ -97,6 +100,16 @@ st.markdown(
         padding-bottom: 8px !important;
     }
     </style>
+    """,
+    unsafe_allow_html=True
+)
+st.markdown(
+    """
+    <style>
+    .st-key-title {
+        padding-top: 8px !important;
+        padding-left: 16px !important;
+    }
     """,
     unsafe_allow_html=True
 )
@@ -179,7 +192,7 @@ if video is not None:
     st.image(video.loc['thumbnail'] , width='stretch')
   
   with title_row[1]:
-    title_tile = st.container(border=True, key="title", height=126)  
+    title_tile = st.container(border=False, key="title", height=126)  
     print(video)
     title_tile.markdown(f"##### {video.loc['title']}")
     title_tile.caption(f"{video.loc['channel_title']}")
@@ -228,6 +241,7 @@ if video is not None:
     tile = st.container(border=True)
     top_bottom = "bottom" if top_n <= 0.5 else "top"
     # Want >= 50%/25% not <=
+    print(f"Top_n {top_n}")
     if top_n > 0.5:
       top_n = (1-top_n)+0.25
     tile.markdown(f"Expected to be in the {top_bottom} {int(top_n*100)}% in channel views")
@@ -255,7 +269,8 @@ if video is not None:
 
 # Features
 if video is not None:
-  space = st.container(border=False, height=12)
+  # space = st.container(border=False, height=12)
+  space = st.container(border=False, height=24)
   # New feature
   new_feature = st.text_input(
     "Feature impact: How much does the model see this feature in a description of the video?", 
@@ -303,7 +318,7 @@ if video is not None:
           tile = st.container(border=True)
           term = top_terms[i].replace('episode', '').replace('Episode', '')
           tile.markdown(f"###### {term}")
-          tile.caption(f"Impact: {format_impact(dist[i])}")
+          tile.caption(f"Estimated Impact: {format_impact(dist[i])}")
 
   # If searched for a feature, display the impact
   if new_feature:
@@ -326,25 +341,59 @@ if video is not None:
       if term_dist:
         tile = st.container(border=True)
         tile.markdown(f"###### {new_feature}")
-        tile.caption(f"Impact: {format_impact(term_dist)}")
+        tile.caption(f"Estimated Impact: {format_impact(term_dist)}")
 
     except Exception as e:
       st.error(f"Error generating embedding: {e}")
 
 
+if video is not None:
+
+  terms = predict_boostable_features(
+        st.session_state.video_collection, 
+        st.session_state.term_collection, 
+        video['id'], 
+        feature_scale=FEATURE_SCALE, 
+        n_boostable=N_BOOST
+    )
+  print(terms)
+  if terms:
+    st.markdown(
+      "<div style='font-weight:400; font-size:14px; margin-bottom:8px;'>Features to improve: Which features are estimated to increase views, if enhanced?</div>",
+      unsafe_allow_html=True,
+      help="Depending on the feature, we recommend strengthening these in the title/description, or adding them to your content."
+  )
+    for i, col in enumerate(st.columns(3)):
+      if len(terms) == i:
+        break
+      with col:
+        tile = st.container(border=True)
+        term = terms[i][0].replace('episode', '').replace('Episode', '')
+        tile.markdown(f"###### {term}")
+        tile.caption(f"Estimated Impact: {int(terms[i][1])}% Increase")
+
+
 # Display plots
 if video is not None:
-  space = st.container(border=False, height=20)
+  # space = st.container(border=False, height=20)
+  space = st.container(border=False, height=32)
   container = st.container()
-  plot_channel_over_time(
-    container, st.session_state.df, video['channel_id'], video['id']
+  chart = plot_channel_over_time(
+    st.session_state.df, video['channel_id']
   )
-  plot_channel_duration_over_time(
-    container, st.session_state.df, video['channel_id']
+  container.altair_chart(chart, use_container_width=True)
+
+  container = st.container()
+  chart = plot_channel_duration_over_time(
+    st.session_state.df, video['channel_id']
   )
-  plot_work_per_video_type(
-    container, st.session_state.df, video['channel_id']
+  container.altair_chart(chart)
+
+  container = st.container()
+  chart = plot_work_per_video_type(
+    st.session_state.df, video['channel_id']
   )
+  container.altair_chart(chart, use_container_width=True)
 
 # Description
 if video is not None:

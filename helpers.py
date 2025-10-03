@@ -1,6 +1,7 @@
 import pandas as pd
 import altair as alt
 import numpy as np
+import streamlit as st
 import pickle, sklearn, openai, tiktoken
 
 MAX_TOKENS = 8000  # safe under the 8191 limit
@@ -26,10 +27,44 @@ def format_impact(distance):
   else: 
     return None
 
+# ----- Chroma -----
+
 def truncate_text(text, max_tokens=MAX_TOKENS):
     tokenizer = tiktoken.encoding_for_model(EMB_MODEL_NAME)
     tokens = tokenizer.encode(text)
     return tokenizer.decode(tokens[:max_tokens])
+  
+def get_all_from_chroma(collection):
+    offset = 0
+    limit = 300
+    chroma_df = None
+
+    while True:
+        data = collection.get(include=["documents", "embeddings"], limit=limit, offset=offset)
+        if not len(data['documents']):
+            break
+        if offset % 300 == 0:
+            print(f"Documents {offset} - {offset + len(data['documents'])}, {data['ids'][0]}")
+
+        offset += len(data['documents'])
+        data['embeddings'] = data['embeddings'].tolist()
+        filtered_data = {
+            'id': data['ids'],
+            'document': data['documents'],
+            'embedding': data['embeddings']
+        }
+
+        if chroma_df is None:
+            chroma_df = pd.DataFrame(filtered_data)
+        else:
+
+            chroma_df = pd.concat([chroma_df, pd.DataFrame(filtered_data)], ignore_index=True)
+    
+        if offset % 300 == 0:
+            print(f"Total documents: {len(chroma_df)}")
+
+    print(f"Total documents: {len(chroma_df)}")
+    return chroma_df
 
 def get_from_chroma_with_ids(collection, ids):
     data = collection.get(ids=ids, include=["documents", "embeddings"])
@@ -42,7 +77,12 @@ def add_emb_to_chroma(collection, id, emb, doc):
         embeddings=[emb] if emb is not None else None
     )
 
-def predict_top_n_percent(df_videos, video, video_collection, embedder, n_days_ago=90, regr=None):
+  
+# ----- Predictions -----
+
+
+@st.cache_data
+def predict_top_n_percent(df_videos, video, _video_collection, _embedder, n_days_ago=90, regr=None):
   ''' Returns whether the video lies in the top n percent of channel videos. 
   The video must be published within the last n days and be in the bottom 50% of views.
   TODO: Verify if this works on videos not in the csv
@@ -71,18 +111,18 @@ def predict_top_n_percent(df_videos, video, video_collection, embedder, n_days_a
   else:
     # Otherwise grab median of views > time_cutoff
     channel_videos['published_at_datetime'] = pd.to_datetime(channel_videos['published_at'], utc=True)
-    channel_median_views = channel_videos[channel_videos['published_at_datetime'] > time_cutoff]['views'].median()
+    channel_median_views = channel_videos[channel_videos['published_at_datetime'] < time_cutoff]['views'].median()
 
   # Load video embedding from chroma
-  video_docs = get_from_chroma_with_ids(video_collection, [video['id']])
+  video_docs = get_from_chroma_with_ids(_video_collection, [video['id']])
 
   # If video isn't in chroma then create embedding
   if not video_docs.get('documents'):
-    emb = embedder(truncate_text(video['embedding_text']))
+    emb = _embedder(truncate_text(video['embedding_text']))
     emb = emb[0]
     # Store in Chroma
     print("Adding to chroma")
-    add_emb_to_chroma(video_collection, video['id'], emb, video['embedding_text'])
+    add_emb_to_chroma(_video_collection, video['id'], emb, video['embedding_text'])
     
   else:
     print("Embedding in chroma")
@@ -100,6 +140,8 @@ def predict_top_n_percent(df_videos, video, video_collection, embedder, n_days_a
   pred = np.exp(pred) * channel_median_views
   print(f"Predicted views: {pred}")
 
+#   Ignoring to keep this exact model predictions and the quantile covers this up some
+#   If they outperform the model then good on them
 #   pred = min(int(pred), video['views'])
 
   print(f"Max views for channel: {channel_videos_sorted.iloc[0]['views']}")
@@ -110,11 +152,70 @@ def predict_top_n_percent(df_videos, video, video_collection, embedder, n_days_a
   for n in [0.75, 0.5, 0.25, 0.]:
     top_n_percent_idx = int(len(channel_videos_sorted)*n)
     top_n_percent_views = channel_videos_sorted.iloc[top_n_percent_idx]['views']
-    # print(f"Top n-5% views for channel: {top_n_percent_views}")
     if pred < top_n_percent_views:
         return 1-n
   
   return None
+
+
+def predict_boostable_features(
+        video_collection, 
+        term_collection, 
+        video_id, 
+        term_docs=None,
+        regr=None,
+        feature_scale=0.2, 
+        n_boostable=3
+    ):
+    ''' Predicts features which if boosted, would improve the prediction. 
+    Returns the n_boostable features with the highest boost or None if no features are boostable.
+    '''
+    if regr is None:
+        with open(MODEL_PATH, 'rb') as f:
+            regr = pickle.load(f)
+    
+    if regr is None:
+        return None
+
+    # Get video embeddings
+    video_docs = get_from_chroma_with_ids(video_collection, [video_id])
+    video_embs = video_docs.get('embeddings')
+    if video_embs is None or not len(video_embs):
+        return None
+    video_emb = video_embs[0]
+
+    # Get term embeddings
+    if term_docs is None:
+        term_docs = get_all_from_chroma(term_collection)
+    
+    video_pred = regr.predict(video_emb.reshape(1,-1))
+    video_pred = np.exp(video_pred)
+    if type(video_pred) in [np.ndarray, list] and len(video_pred):
+        video_pred = video_pred[0]
+    print(f"Predicted uplift: {video_pred}")
+    # See which boost the most
+    gt_terms = []
+    for i in range(len(term_docs)):
+        term_emb = np.array(term_docs.iloc[i]['embedding'])
+        pred = predict_for_feature(term_emb, video_emb, regr, feature_scale)
+        if pred > video_pred:
+            # Convert to boost over video_pred
+            improvement = ((pred - video_pred) / video_pred)*100
+            gt_terms.append((term_docs.iloc[i]['document'], improvement))
+
+    gt_terms.sort(key=lambda x: x[1], reverse=True)
+    gt_terms = gt_terms[:n_boostable]
+
+    return gt_terms
+
+def predict_for_feature(feature_embedding, video_embedding, regr, feature_scale=0.2):
+    # Predict
+    input_embedding = video_embedding + (feature_scale * feature_embedding)
+    input_embedding = input_embedding.reshape(1, -1)
+    pred = regr.predict(input_embedding)
+    if type(pred) in [np.ndarray, list] and len(pred):
+        pred = pred[0]
+    return np.exp(pred)
 
 
 def rewrite_title(video, openai_api_key):
@@ -140,7 +241,10 @@ def rewrite_title(video, openai_api_key):
     return output[0].text
 
 
-def plot_channel_over_time(container, df_videos, channel_id, video_id):
+# ----- Plots -----
+
+@st.cache_data
+def plot_channel_over_time(df_videos, channel_id):
     channel_videos = df_videos[df_videos['channel_id'] == channel_id]
     channel_name = channel_videos.iloc[0]['channel_title']
     print(f"Channel name: {channel_name}")
@@ -152,14 +256,13 @@ def plot_channel_over_time(container, df_videos, channel_id, video_id):
     # convert datetime to month and year
     channel_videos['published_at_month'] = channel_videos['published_at_datetime'].dt.to_period('M')
 
-    # Get video published_at_month
-    video_month = channel_videos[channel_videos['id'] == video_id].iloc[0]['published_at_month']
-    print(f"Video published at month: {video_month}")
+    # # Get video published_at_month
+    # video_month = channel_videos[channel_videos['id'] == video_id].iloc[0]['published_at_month']
+    # print(f"Video published at month: {video_month}")
 
     # group by month and compute sum of views
     channel_videos = channel_videos.groupby('published_at_month')['views'].sum()
     channel_videos.index = channel_videos.index.astype(str)
-    # channel_videos = channel_videos / 1000
     # convert to a DataFrame
     df = pd.DataFrame({
         'Month': channel_videos.index, 
@@ -251,10 +354,11 @@ def plot_channel_over_time(container, df_videos, channel_id, video_id):
         fontSize=16,
         anchor='middle',
     )
-    container.altair_chart(chart.interactive(bind_y=False), use_container_width=True)
+    return chart
 
 
-def plot_channel_duration_over_time(container, df_videos, channel_id):
+@st.cache_data
+def plot_channel_duration_over_time(df_videos, channel_id):
     ''' Plot the duration of videos over time for a channel '''
 
     channel_videos = df_videos[df_videos['channel_id'] == channel_id]
@@ -358,7 +462,6 @@ def plot_channel_duration_over_time(container, df_videos, channel_id):
     chart = alt.layer(
         chart,
         video_duration_area_chart + video_duration_line_chart,
-        data=df
     ).resolve_scale(
         y='independent'
     ).interactive(
@@ -369,10 +472,11 @@ def plot_channel_duration_over_time(container, df_videos, channel_id):
         fontSize=16,
         anchor='middle',
     )
-    container.altair_chart(chart, use_container_width=True)
+    return chart
 
 
-def plot_work_per_video_type(container, df_videos, channel_id):
+@st.cache_data
+def plot_work_per_video_type(df_videos, channel_id):
     
     channel_videos = df_videos[df_videos['channel_id'] == channel_id]
     channel_videos['video_type'] = channel_videos['duration'].apply(
@@ -390,7 +494,7 @@ def plot_work_per_video_type(container, df_videos, channel_id):
     })
     # Define the desired order for video types
     video_type_order = ['Short (<3M)', 'Clip (<20M)', 'Long Form (≥20M)']
-    # Altair chart that shows a scatter plot where each column is a video_type_view, size is a the total duration * 5, and height is video_type_view
+    # Altair chart that shows a scatter plot where each column is a video_type_view, height is a the total duration * 5, and size is video_type_view
     scatter = alt.Chart(df).mark_circle().encode(
         x=alt.X('Video Type:N', sort=video_type_order,
                 axis=alt.Axis(labels=True, ticks=False, labelAngle=0)
@@ -403,18 +507,16 @@ def plot_work_per_video_type(container, df_videos, channel_id):
         size=alt.Size(
             'Views:Q',
             scale=alt.Scale(range=[1000, 10000]),
-            # legend=alt.Legend(title="Production work (minutes*5)")
             legend=None
         ),
         color=alt.Color(
             'Video Type:N',
-            # scale=alt.Scale(domain=work_per_video.values),  # only these three show in the legend
             legend=None
         ),
         tooltip=[
-            alt.Tooltip('Video Type:N', title='Type'),
-            alt.Tooltip('Views:Q', title='Median Views', format=',.0f'),
-            alt.Tooltip('Work:Q', title='Estimated Work (min)', format=',.0f')
+            # alt.Tooltip('Video Type:N', title='Type'),
+            # alt.Tooltip('Views:Q', title='Median Views', format=',.0f'),
+            # alt.Tooltip('Work:Q', title='Estimated Work (min)', format=',.0f')
         ]
     )
 
@@ -436,7 +538,6 @@ def plot_work_per_video_type(container, df_videos, channel_id):
     # Combine scatter and labels
     chart = alt.layer(
       scatter + labels, 
-      data=df
     ).properties(
         title="Is the effort worth the views? (Median views per production cost)",
         height=400
@@ -445,4 +546,4 @@ def plot_work_per_video_type(container, df_videos, channel_id):
         anchor='middle',
     )
 
-    container.altair_chart(chart, use_container_width=True)
+    return chart
