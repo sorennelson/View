@@ -20,6 +20,7 @@ OPENAI_API_KEY = os.environ['OPENAI_API_KEY']
 N_TERMS = 3
 FEATURE_SCALE = 0.1
 N_BOOST = 3
+N_VIDS = 3
 
 # Set up to df / youtube
 if "df" not in st.session_state:
@@ -158,6 +159,40 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+# Keep videos like this section containers all same height
+st.markdown(
+    """
+    <style>
+      /* ensure layout wrapper can stretch */
+      div[class*="st-key-videos-like-this"] [data-testid="stLayoutWrapper"] {
+        height: 100% !important;
+        min-height: 0 !important;
+        flex: 1 1 auto !important;
+      }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+# Floor the captions in videos like this section
+st.markdown(
+    """
+    <style>
+      /* Target the parent of the caption container */
+      div[class*="st-key-videos-like-this-caption"] [data-testid="stVerticalBlock"] {
+        display: flex !important;
+        flex-direction: column !important;
+        height: 100% !important;          
+      }
+
+      /* Push the inner caption to the bottom */
+      div[class*="st-key-videos-like-this-caption"] [data-testid="stVerticalBlock"] > div:first-child {
+        padding-top: 16px !important;
+        margin-top: auto !important;      
+      }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 
 
@@ -270,7 +305,9 @@ if video is not None:
 # Features
 if video is not None:
   # space = st.container(border=False, height=12)
-  space = st.container(border=False, height=24)
+  space = st.container(border=False, height=20)
+  st.subheader("Features")
+
   # New feature
   new_feature = st.text_input(
     "Feature impact: How much does the model see this feature in a description of the video?", 
@@ -347,6 +384,7 @@ if video is not None:
       st.error(f"Error generating embedding: {e}")
 
 
+# Boostable features
 if video is not None:
 
   terms = predict_boostable_features(
@@ -359,10 +397,10 @@ if video is not None:
   print(terms)
   if terms:
     st.markdown(
-      "<div style='font-weight:400; font-size:14px; margin-bottom:8px;'>Features to improve: Which features are estimated to increase views, if enhanced?</div>",
+      "<div style='font-weight:400; font-size:14px; margin-bottom:8px;'>Features to improve: Which features are estimated to increase views if enhanced?</div>",
       unsafe_allow_html=True,
       help="Depending on the feature, we recommend strengthening these in the title/description, or adding them to your content."
-  )
+    )
     for i, col in enumerate(st.columns(3)):
       if len(terms) == i:
         break
@@ -373,10 +411,45 @@ if video is not None:
         tile.caption(f"Estimated Impact: {int(terms[i][1])}% Increase")
 
 
+# Most similar videos
+if video is not None:
+  top_videos = get_most_similar_videos(
+    st.session_state.df, 
+    st.session_state.video_collection,  
+    video['id'],  
+    n_similar=N_VIDS
+  )
+  if top_videos is not None and len(top_videos):
+    space = st.container(border=False, height=20)
+
+    st.subheader("Videos like this")
+    outer_cont = st.container(border=False, key="videos-like-this")
+    cols = outer_cont.columns(3)
+    for i in range(len(top_videos[:3])):
+      video = top_videos.iloc[i]
+      # container = st.container(border=True)
+      # col1, col2 = container.columns([1,5], gap='medium')
+      # col1.image(video['thumbnail'])
+      # col2.markdown(f"###### {video['title']}")
+      # col2.caption(f"{video['channel_title']}")
+      # col2.caption(f"{format_number(video['views'])} Views")
+
+      col = cols[i]
+      container = col.container(border=True)
+      container.image(video['thumbnail'])
+      container.markdown(f"###### {video['title']}")
+      caption_cont = container.container(border=False, key=f'videos-like-this-caption-{i}')
+      left_cap, right_cap = caption_cont.columns([2,1])
+      left_cap.caption(f"{video['channel_title']}")
+      right_cap.caption(f"{format_number(video['views'])} Views")
+
+
 # Display plots
 if video is not None:
-  # space = st.container(border=False, height=20)
+  
   space = st.container(border=False, height=32)
+  st.subheader("Channel Views")
+
   container = st.container()
   chart = plot_channel_over_time(
     st.session_state.df, video['channel_id']

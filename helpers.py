@@ -218,6 +218,48 @@ def predict_for_feature(feature_embedding, video_embedding, regr, feature_scale=
     return np.exp(pred)
 
 
+def get_most_similar_videos(df_videos, video_collection, video_id, n_similar=3):
+    # Get video embedding
+    video_docs = get_from_chroma_with_ids(video_collection, [video_id])
+    video_emb = video_docs.get('embeddings')
+    if video_emb is None or not len(video_emb):
+        # Query without embedding
+        text = df_videos[df_videos['id'] == video_id]['embedding_text'].values[0]
+        add_emb_to_chroma(video_collection, video_id, None, text)
+        top_video_docs = video_collection.query(
+            query_texts=[text],
+            n_results=10,
+        )
+
+    else:
+        # Query with embedding
+        top_video_docs = video_collection.query(
+            query_embeddings=video_emb,
+            n_results=10,
+        )
+    ids = top_video_docs.get('ids')
+    if ids is None or not len(ids):
+        return None
+    # 2d array returned - grab list
+    if type(ids[0]) in [np.ndarray, list] and len(ids[0]):
+        ids = ids[0]
+
+    scores = top_video_docs.get('distances')
+    print(f"Scores: {scores}")
+    print(f"Ids: {ids}")
+    # Remove query video
+    ids.remove(video_id)
+
+    top_videos = df_videos[df_videos['id'].isin(ids)]
+    top_videos = top_videos.drop_duplicates('title')
+    top_videos = top_videos.reset_index(drop=True)
+    top_videos = top_videos.iloc[:n_similar]
+    top_videos = top_videos.sort_values(by='views', ascending=False)
+    print(top_videos[['title', 'views', 'channel_title']].to_string())
+
+    return top_videos
+
+
 def rewrite_title(video, openai_api_key):
     client = openai.OpenAI(api_key=openai_api_key)
 
