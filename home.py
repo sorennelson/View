@@ -63,120 +63,64 @@ if "df" not in st.session_state:
 st.markdown(
     """
     <style>
-    [data-testid="stMainBlockContainer"] {
-        padding-top: 0 !important;
-        max-width: 900px !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-# Center Logo
-st.markdown(
-    """
-    <style>
-    [data-testid="stToolbar"] div div div div img {
-        height: 40px !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-# Toolbar color
-st.markdown(
-    """
-    <style>
-    [data-testid="stToolbar"] {
-        border-bottom: 0.5px solid rgba(60,64,68,.5);
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-
-st.markdown(
-    """
-    <style>
-    h6, h5 {
-        padding-bottom: 8px !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-st.markdown(
-    """
-    <style>
-    .st-key-title {
-        padding-top: 8px !important;
-        padding-left: 16px !important;
-    }
-    """,
-    unsafe_allow_html=True
-)
-
-st.markdown(
-    """
-    <style>
-    p {
-        margin-bottom: 8px !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-st.markdown(
-    """
-    <style>
-    [data-testid="stCaptionContainer"] {
-        margin-bottom: -12px !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-st.markdown(
-    """
-    <style>
-    button[kind="secondary"], button[kind="primary"], .stButton > button {
-        padding-top: 12px !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-# Center Streamlit spinners
-st.markdown(
-    """
-    <style>
-    .stSpinner div {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        margin-top: 16px !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-# Keep videos like this section containers all same height
-st.markdown(
-    """
-    <style>
-      /* ensure layout wrapper can stretch */
-      div[class*="st-key-videos-like-this"] [data-testid="stLayoutWrapper"] {
-        height: 100% !important;
-        min-height: 0 !important;
-        flex: 1 1 auto !important;
+      /* Main container */
+      [data-testid="stMainBlockContainer"] {
+          padding-top: 80pxr !important;
+          max-width: 900px !important;
       }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-# Floor the captions in videos like this section
-st.markdown(
-    """
-    <style>
+      /* Logo */
+      [data-testid="stToolbar"] div div div div img {
+          height: 40px !important;
+      }
+      /* Toolbar color */
+      [data-testid="stToolbar"] {
+          border-bottom: 0.5px solid rgba(60,64,68,.5);
+      }
+
+      h1 {
+        text-align: center !important;
+        padding-top: 0 !important;
+        padding-bottom: 32px !important;
+
+        font-size: 2.5rem !important;
+      }
+
+      h6, h5 {
+          padding-bottom: 8px !important;
+      }
+      p {
+          margin-bottom: 8px !important;
+      }
+
+      /* Title tiles */
+      .st-key-title {
+          padding-top: 8px !important;
+          padding-left: 16px !important;
+      }
+
+      [data-testid="stCaptionContainer"] {
+          margin-bottom: -12px !important;
+      }
+
+      button[kind="secondary"], button[kind="primary"], .stButton > button {
+          padding-top: 12px !important;
+      }
+
+      .stSpinner div {
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          margin-top: 16px !important;
+      }
+
+      /* Keep "videos like this section" containers all same height */
+      div[class*="st-key-videos-like-this"] [data-testid="stLayoutWrapper"] {
+          height: 100% !important;
+          min-height: 0 !important;
+          flex: 1 1 auto !important;
+      }
+
+      /* Floor the captions in videos like this section */
       /* Target the parent of the caption container */
       div[class*="st-key-videos-like-this-caption"] [data-testid="stVerticalBlock"] {
         display: flex !important;
@@ -195,9 +139,10 @@ st.markdown(
 )
 
 
-
-# Logo
-st.logo("files/Logo.png", size="large", icon_image="files/Logo.png")
+# Logo/ title/tab title
+st.logo("files/view.png", size="large", icon_image="files/view.png")
+st.set_page_config(page_title="View")
+st.title("View")
 
 # Select video
 title = st.selectbox(
