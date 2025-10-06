@@ -426,7 +426,7 @@ if video is not None:
     outer_cont = st.container(border=False, key="videos-like-this")
     cols = outer_cont.columns(3)
     for i in range(len(top_videos[:3])):
-      video = top_videos.iloc[i]
+      top_video = top_videos.iloc[i]
       # container = st.container(border=True)
       # col1, col2 = container.columns([1,5], gap='medium')
       # col1.image(video['thumbnail'])
@@ -436,12 +436,12 @@ if video is not None:
 
       col = cols[i]
       container = col.container(border=True)
-      container.image(video['thumbnail'])
-      container.markdown(f"###### {video['title']}")
+      container.image(top_video['thumbnail'])
+      container.markdown(f"###### {top_video['title']}")
       caption_cont = container.container(border=False, key=f'videos-like-this-caption-{i}')
       left_cap, right_cap = caption_cont.columns([2,1])
-      left_cap.caption(f"{video['channel_title']}")
-      right_cap.caption(f"{format_number(video['views'])} Views")
+      left_cap.caption(f"{top_video['channel_title']}")
+      right_cap.caption(f"{format_number(top_video['views'])} Views")
 
 
 # Display plots
