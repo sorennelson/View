@@ -34,7 +34,7 @@ class Video(BaseModel):
     embedding_text: str
 
 
-def get_youtube_video_df(session_state, path):
+def get_youtube_video_df(session_state, path, fallback_path):
     if os.path.exists(path):
         # check if modified in past day
         modified_ts = os.path.getmtime(path)
@@ -59,6 +59,7 @@ def get_youtube_video_df(session_state, path):
         df = pd.DataFrame([v.model_dump() for v in channel_stats])
         df = df.drop_duplicates(subset=['id'])
         df.to_csv(path, index=False)
+        df.to_csv(fallback_path, index=False)
         session_state.df = df
     except Exception as e:
         print(f"Failed to update videos DF")

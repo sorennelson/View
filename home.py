@@ -10,6 +10,7 @@ from youtube import get_youtube_video_df
 import time
 
 DF_PATH = "files/videos.csv"
+DF_PATH_FALLBACK = "files/videos-fallback.csv"
 VIDEO_EMB_COLLECTION = "videos-0926-large-512"
 TERMS_EMB_COLLECTION = "terms-large-512"
 EMB_MODEL_NAME = "text-embedding-3-large"
@@ -24,10 +25,14 @@ N_VIDS = 3
 
 # Set up to df / youtube
 if "df" not in st.session_state:
-    st.session_state.df = pd.read_csv(DF_PATH)
+    # Use the fallback if the main file hasn't been created yet
+    if not os.path.exists(DF_PATH):
+      st.session_state.df = pd.read_csv(DF_PATH_FALLBACK)
+    else:
+      st.session_state.df = pd.read_csv(DF_PATH)
     
     # Load the latest videos on background thread
-    Thread(target=get_youtube_video_df, args=(st.session_state, DF_PATH), daemon=True).start()
+    Thread(target=get_youtube_video_df, args=(st.session_state, DF_PATH, DF_PATH_FALLBACK), daemon=True).start()
 
     # Sort by publication
     st.session_state.df['published_at_datetime'] = pd.to_datetime(st.session_state.df['published_at'], utc=True)
